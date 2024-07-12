@@ -232,6 +232,9 @@ c 0 === (2 - xy) _ (3 - xy) _ (6 - xy)
 
 You can actually represent this in a sane way:
 
+- Each letter represents the colour of a province of australia
+- Each number expresses the colour constraint
+
 ```c
 // color constraints
 0 === (1 - WA) * (2 - WA) * (3 - WA)
@@ -251,4 +254,282 @@ You can actually represent this in a sane way:
 0 === (2 - SA * V) * (3 - SA * V) * (6 - SA * V)
 0 === (2 - Q * NSW) * (3 - Q * NSW) * (6 - Q * NSW)
 0 === (2 - NSW * V) * (3 - NSW * V) * (6 - NSW * V)
+```
+
+## Sorting a list
+
+### Expressing binary notation as a constraint
+
+We can take any number `x` and express it as a sum of powers of 2, to convert it to binary:
+
+```c
+x = 13
+
+2^3 * 1
+2^2 * 0
+2^1 * 1
+2^0 * 1
+
+8 * 1
+4 * 0
+2 * 1
+1 * 1
+
+x = 8 + 0 + 2 + 1 = 13
+```
+
+The generalised version of this is:
+
+`x = x_n*(2^n) + x_(n-1)*2^(n-1) + ... x_1*(2^1) + x_0*(2^0)`
+
+If you want to constrain x to a specifically sized number, note that the largest term is removed, so for a 4bit number:
+
+`x(size=4bits) = x_3*(2^3) + x_2*(2^2) + x_1*(2^1) + x_0*(2^0)`
+
+Meaning, in a generalised format:
+
+`x(s=size) = x_(s-1)*2^(s-1) + ... x_1*(2^1) + x_0*(2^0)`
+
+What's super cool to remember is that there are some specific operations in binary that we can leverage when building out circuits and constraints:
+
+_Max sizing_: `2^n - 1` represents a binary number of all 1s, or the max possible value for a value of size `n` (in bits).
+
+_Overflow_: `2^n` therefore represents the smallest possible value of `n+1` bits.
+
+_Midpoint_: `2^(n-1)` (aka, 2^2 for a 4 bit number) represents the **halfway point** of the number for n bits, in terms of 1s and 0s:
+
+```c
+n = 3 bits
+
+0 0 0 = 0
+0 0 1 = 1
+0 1 0 = 2
+0 1 1 = 3
+--------- // leading zero before, leading 1 after
+1 0 0 = 4 // 2^2 === 2^(n-1)
+1 0 1 = 5
+1 1 0 = 6
+1 1 1 = 7 // 2^3 - 1 === (2^n -1)
+```
+
+### Range constraints
+
+You can start to see where this is going. Until now, we haven't demonstrated a way to compare 2 values in an AC.
+
+However, using the above binary logic we can say a few things:
+
+1. We can constrain a value to be a certain size using the following constraint:
+
+choose (v,x0,x1,x2) st:
+
+```c
+// v must be expressable as a sum of powers of 2
+v === 4x2 + 2x1 + x0
+
+// all x values must equal 0, 1
+x0(1-x0) === 0
+x1(1-x1) === 0
+x2(1-x2) === 0
+```
+
+### Putting it together
+
+Recall the properties of `2^(n-1)`:
+
+- It is the halfway point between `2^n-1 ` and 0
+- It is the first value who's MSB is 1
+
+Take some arbitrary delta `d`, then write:
+
+`2^(n-1)` + `d`
+
+For `d_n`:
+
+- If `d_n` === 1, `d` < `2^(n-1)`
+- If `d_n` === 0, `d` >= `2^(n-1)`
+
+And recall that as a constraint:
+
+```c
+(v, x5, x4, x3, x2, x1, x0)
+(u, y5, y4, y3, y2, y1, y0)
+
+v === 16x4 + 8x3 + 4x2 + 2x1 + x0
+u === 16y4 + 8y3 + 4y2 + 2y1 + y0
+
+x0(1-x0) === 0
+x1(1-x1) === 0
+x2(1-x2) === 0
+x3(1-x3) === 0
+x4(1-x4) === 0
+
+y0(1-y0) === 0
+y1(1-y1) === 0
+y2(1-y2) === 0
+y3(1-y3) === 0
+y4(1-y4) === 0
+```
+
+Now, to compare v & u, we compute:
+
+`2^(n-1)` + `(v + u)` = `z`
+
+if z_n\* === 0 =>
+u is GTE v, because v+u must be negative
+
+if z_n\* === 1 =>
+u is LT v, becuse v+u is positive
+
+### Overflow
+
+Notice this creates an issue with larger values of v and u because of underflow and overflow.
+In binary, adding 1 bit will _always_ provide room for all numbers below, so a simple further constraint is to say that, for `2^(n-1)`, v can only be at most `n-1` bits (same with u).
+
+This means that for n=5, we can check equality for max 4 bit numbers.
+
+### Complete examples
+
+```c
+
+// 4 bit number
+n = 4
+
+// constrain to 3 bit comparisons
+v = (x2,x1,x0)
+u = (y2,y1,y0)
+
+// binary 1s and zeroes
+v = x2(x2-1) + x1(x1-1) + x0(x0-1)
+y = y2(y2-1) + y1(y1-1) + y0(y0-1)
+
+// expressable as powers of 2
+v = 4x2 + 2x1 + x0
+u = 4y2 + 2y1 + y0
+
+// to say v >= u we first diff the 2^3 == 8 against v + u
+check = 8 + (v + u)
+
+// finding the MSB of check
+check = 8z3 + 4z2 + 2z1 + z0
+
+// implies
+z3 === 1
+```
+
+The above is then used for each element in the list, to check if it is sorted.
+
+# Boolean Circuits -> Arithmetic Circuits
+
+We saw how to constrain a value to 0, 1:
+
+`x(x-1) === 0`
+
+Mandates that x => {0,1}
+
+How then, can we model different boolean gates (AND, OR, NOT). Recalling compsci 101, these basic building blocks allow us to craft all other bitwise operations and theoretically do anything.
+
+## AND
+
+v AND u has the following TT:
+
+| v   | u   | output |
+| --- | --- | ------ |
+| 0   | 0   | 0      |
+| 1   | 0   | 0      |
+| 0   | 1   | 0      |
+| 1   | 1   | 1      |
+
+So we need a constraint that ONLY suffices for v === 1 and u === 1
+
+Option 1:
+
+v === 1
+u === 1
+
+Or
+
+`1 - uv === 0`
+
+for a given `x` then, replace 1 with x:
+
+`x === uv`
+
+## OR
+
+| v   | u   | output |
+| --- | --- | ------ |
+| 0   | 0   | 0      |
+| 1   | 0   | 1      |
+| 0   | 1   | 1      |
+| 1   | 1   | 1      |
+
+Bit harder, we need to rule out v, u === 0, but can't set both
+
+We know:
+
+| v   | u   | vu  | v + u | v + u - vu |
+| --- | --- | --- | ----- | ---------- |
+| 0   | 0   | 0   | 0     | 0          |
+| 1   | 0   | 0   | 1     | 1          |
+| 0   | 1   | 0   | 1     | 1          |
+| 1   | 1   | 1   | 2     | 1          |
+
+So if vu === v + u, this is not allowed
+
+so we could say:
+
+`v + u - vu === 1`
+
+For an arbitrary x this is
+
+t === u + v - uv
+
+## NOT
+
+For v = NOT x
+
+x(x-1) === 0 (constrain x to 1 and 0)
+v === 1 - x
+
+## A more complex example:
+
+```c
+out = (x ∧ ¬ y) ∨ z
+```
+
+1. Bound the values to binary
+
+x(x - 1) === 0
+y(y - 1) === 0
+z(z - 1) === 0
+
+2. Apply the above logic
+
+```c
+// Replace ¬ y with the the arithmetic circuit for NOT
+// this is just a replacement for 1 - y
+out = (x ∧ (1 - y)) ∨ z
+
+// Replace ∧ with the arithmetic circuit for AND
+// a AND b === ab (iff a and b are binary)
+out = (x(1 - y)) ∨ z
+
+// Replace ∨ with the arithmetic circuit for OR
+// u + v - uv
+out = (x(1 - y)) + z - (x(1 - y))z
+```
+
+Thus you have:
+
+```c
+x(x - 1) === 0
+y(y - 1) === 0
+z(z - 1) === 0
+out === (x(1 - y)) + z - (x(1 - y))z
+
+=== x - xy + z - z(x - xy)
+=== x - xy + z - zx + zxy
+
+// or alternatively:
+out === x - xy + z - xz + xyz
 ```
